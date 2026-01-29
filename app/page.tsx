@@ -15,68 +15,74 @@ export default function Home() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  async function decide() {
+  async function decide(fromHint?: string) {
     if (loading) return;
-    if (!input.trim()) return;
+
+    const finalInput = (fromHint ?? input).trim();
+    if (!finalInput) return;
 
     setLoading(true);
     setShow(false);
 
-    const memory = JSON.parse(
-      localStorage.getItem("decisionMemory") || "[]"
-    );
+    // mémoire locale sécurisée
+    let memory: string[] = [];
+    try {
+      memory = JSON.parse(localStorage.getItem("decisionMemory") || "[]");
+    } catch {
+      memory = [];
+    }
 
-    const currentInput = input;
-    setInput(""); // anti-spam UX
+    setInput(""); // vide l’input immédiatement (anti-spam UX)
 
-    const res = await fetch("/api/decide", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        input: currentInput,
-        memory,
-      }),
-    });
+    try {
+      const res = await fetch("/api/decide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input: finalInput,
+          memory,
+        }),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (data.ok) {
+      if (!data?.ok) throw new Error("API error");
+
       setDecision(data.decision);
       setWhy(data.why);
       setNow(data.now);
-      setHints(data.hints || []);
+      setHints(Array.isArray(data.hints) ? data.hints : []);
 
       const newMemory = [...memory, data.decision].slice(-MAX_MEMORY);
-      localStorage.setItem(
-        "decisionMemory",
-        JSON.stringify(newMemory)
-      );
+      localStorage.setItem("decisionMemory", JSON.stringify(newMemory));
 
       setTimeout(() => {
         setShow(true);
-        audioRef.current?.play();
-      }, 120);
+        audioRef.current?.play().catch(() => {});
+      }, 80);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false); // 🔴 CRUCIAL : empêche le chargement infini
     }
-
-    setLoading(false);
   }
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-black via-zinc-900 to-black text-white relative overflow-hidden">
-
       {/* ambiance */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.05),transparent_70%)] pointer-events-none" />
 
       {/* carte décision */}
       {show && (
-        <div className="max-w-xl mx-auto px-6 pt-16 transition-all">
-          <div className="relative bg-zinc-900/80 backdrop-blur-xl rounded-2xl p-6 shadow-2xl border border-white/10">
+        <div className="max-w-xl mx-auto px-6 pt-16">
+          <div className="relative bg-zinc-900/80 backdrop-blur-xl rounded-2xl p-6 shadow-2xl border border-white/10 animate-fade-in">
             <div className="absolute left-0 top-0 h-full w-1 rounded-l-2xl bg-white/60" />
 
             <p className="text-xs tracking-widest text-zinc-400 mb-2">
               DÉCISION
             </p>
-            <h2 className="text-xl font-semibold mb-4">
+
+            <h2 className="text-xl font-semibold mb-3">
               {decision}
             </h2>
 
@@ -86,35 +92,37 @@ export default function Home() {
               </p>
             )}
 
-            <button className="mt-2 px-4 py-2 rounded-lg bg-white text-black font-medium">
+            <button
+              className="mt-2 px-4 py-2 rounded-lg bg-white text-black font-medium w-full"
+            >
               {now}
-              {hints.length > 0 && (
-  <div className="mt-3 flex gap-2 flex-wrap">
-    {hints.map((hint, i) => (
-      <button
-        key={i}
-        onClick={() => {
-          setInput(hint);
-          decide();
-        }}
-        className="px-3 py-1 text-xs rounded-full
-                   bg-white/10 text-white
-                   hover:bg-white/20 transition"
-      >
-        {hint}
-      </button>
-    ))}
-  </div>
-)}
-
             </button>
+
+            {/* suggestions */}
+            {hints.length > 0 && (
+              <div className="mt-4 flex gap-2 flex-wrap">
+                {hints.map((hint, i) => (
+                  <button
+                    key={i}
+                    onClick={() => decide(hint)}
+                    disabled={loading}
+                    className="px-3 py-1 text-xs rounded-full
+                               bg-white/10 text-white
+                               hover:bg-white/20 transition
+                               disabled:opacity-50"
+                  >
+                    {hint}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* loader */}
+      {/* loader (NE CHEVAUCHE PLUS L’INPUT) */}
       {loading && (
-        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 flex gap-1">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 flex gap-1 z-10">
           <Dot delay="0s" />
           <Dot delay="0.15s" />
           <Dot delay="0.3s" />
@@ -122,17 +130,18 @@ export default function Home() {
       )}
 
       {/* input fixe */}
-      <div className="fixed bottom-0 left-0 right-0 px-4 pb-6">
+      <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 z-20">
         <div className="max-w-xl mx-auto flex items-center bg-zinc-900/80 backdrop-blur-xl rounded-full px-4 py-3 border border-white/10 shadow-xl">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && decide()}
             placeholder="Qu’est-ce qui te bloque ?"
-            className="flex-1 bg-transparent outline-none text-sm text-white placeholder-zinc-500"
+            disabled={loading}
+            className="flex-1 bg-transparent outline-none text-sm text-white placeholder-zinc-500 disabled:opacity-50"
           />
           <button
-            onClick={decide}
+            onClick={() => decide()}
             disabled={loading}
             className={`ml-3 w-10 h-10 rounded-full flex items-center justify-center font-bold transition
               ${
