@@ -15,69 +15,60 @@ export default function Home() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-async function decide() {
-  if (loading) return;
-  if (!input.trim()) return;
+  async function decide(forcedInput?: string) {
+    if (loading) return;
 
-  setLoading(true);
-  setShow(false);
+    const finalInput = (forcedInput ?? input).trim();
+    if (!finalInput) return;
 
-  const memory = JSON.parse(
-    localStorage.getItem("decisionMemory") || "[]"
-  );
+    setLoading(true);
+    setShow(false);
+    setInput(""); // vide l’input immédiatement (anti-spam UX)
 
-  const currentInput = input;
-  setInput(""); // vide l'input immédiatement (anti-spam UX)
-
-  try {
-    const res = await fetch("/api/decide", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        input: currentInput,
-        memory,
-      }),
-    });
-
-    if (!res.ok) {
-      throw new Error("API error");
+    let memory: string[] = [];
+    try {
+      memory = JSON.parse(localStorage.getItem("decisionMemory") || "[]");
+    } catch {
+      memory = [];
     }
 
-    const data = await res.json();
+    try {
+      const res = await fetch("/api/decide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input: finalInput,
+          memory,
+        }),
+      });
 
-    if (data.ok) {
+      if (!res.ok) throw new Error("API error");
+
+      const data = await res.json();
+      if (!data?.ok) throw new Error("Bad response");
+
       setDecision(data.decision);
       setWhy(data.why || "");
       setNow(data.now || "");
-      setHints(data.hints || []);
+      setHints(Array.isArray(data.hints) ? data.hints : []);
 
       const newMemory = [...memory, data.decision].slice(-MAX_MEMORY);
       localStorage.setItem("decisionMemory", JSON.stringify(newMemory));
 
       setTimeout(() => {
         setShow(true);
-        audioRef.current?.play();
-      }, 120);
-    } else {
-      // fallback visible
-      setDecision("Agis simplement.");
+        audioRef.current?.play().catch(() => {});
+      }, 80);
+    } catch (err) {
+      console.error(err);
+      setDecision("Erreur temporaire.");
       setWhy("");
-      setNow("Commence maintenant.");
+      setNow("Réessaie.");
       setShow(true);
+    } finally {
+      setLoading(false); // 🔴 essentiel : empêche le blocage infini
     }
-
-  } catch (err) {
-    // ⚠️ IMPORTANT : feedback utilisateur
-    setDecision("Erreur de connexion.");
-    setWhy("");
-    setNow("Réessaie.");
-    setShow(true);
-  } finally {
-    // 🔴 FIX PRINCIPAL : on débloque TOUJOURS
-    setLoading(false);
   }
-}
-
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-black via-zinc-900 to-black text-white relative overflow-hidden">
@@ -87,7 +78,7 @@ async function decide() {
       {/* carte décision */}
       {show && (
         <div className="max-w-xl mx-auto px-6 pt-16">
-          <div className="relative bg-zinc-900/80 backdrop-blur-xl rounded-2xl p-6 shadow-2xl border border-white/10 animate-fade-in">
+          <div className="relative bg-zinc-900/80 backdrop-blur-xl rounded-2xl p-6 shadow-2xl border border-white/10">
             <div className="absolute left-0 top-0 h-full w-1 rounded-l-2xl bg-white/60" />
 
             <p className="text-xs tracking-widest text-zinc-400 mb-2">
@@ -104,24 +95,19 @@ async function decide() {
               </p>
             )}
 
-            <button
-              className="mt-2 px-4 py-2 rounded-lg bg-white text-black font-medium w-full"
-            >
+            <button className="mt-2 px-4 py-2 rounded-lg bg-white text-black font-medium w-full">
               {now}
             </button>
 
-            {/* suggestions */}
+            {/* suggestions (affinage uniquement) */}
             {hints.length > 0 && (
               <div className="mt-4 flex gap-2 flex-wrap">
                 {hints.map((hint, i) => (
                   <button
                     key={i}
-                    onClick={() => decide(hint)}
+                    onClick={() => decide(hint)} // ✅ CORRIGÉ
                     disabled={loading}
-                    className="px-3 py-1 text-xs rounded-full
-                               bg-white/10 text-white
-                               hover:bg-white/20 transition
-                               disabled:opacity-50"
+                    className="px-3 py-1 text-xs rounded-full bg-white/10 text-white hover:bg-white/20 transition disabled:opacity-50"
                   >
                     {hint}
                   </button>
@@ -132,7 +118,7 @@ async function decide() {
         </div>
       )}
 
-      {/* loader (NE CHEVAUCHE PLUS L’INPUT) */}
+      {/* loader (ne chevauche plus l’input) */}
       {loading && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 flex gap-1 z-10">
           <Dot delay="0s" />
@@ -155,12 +141,11 @@ async function decide() {
           <button
             onClick={() => decide()}
             disabled={loading}
-            className={`ml-3 w-10 h-10 rounded-full flex items-center justify-center font-bold transition
-              ${
-                loading
-                  ? "bg-zinc-600 cursor-not-allowed"
-                  : "bg-white text-black hover:scale-105"
-              }`}
+            className={`ml-3 w-10 h-10 rounded-full flex items-center justify-center font-bold transition ${
+              loading
+                ? "bg-zinc-600 cursor-not-allowed"
+                : "bg-white text-black hover:scale-105"
+            }`}
           >
             →
           </button>
