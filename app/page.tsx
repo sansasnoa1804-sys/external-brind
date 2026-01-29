@@ -15,57 +15,69 @@ export default function Home() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  async function decide(fromHint?: string) {
-    if (loading) return;
+async function decide() {
+  if (loading) return;
+  if (!input.trim()) return;
 
-    const finalInput = (fromHint ?? input).trim();
-    if (!finalInput) return;
+  setLoading(true);
+  setShow(false);
 
-    setLoading(true);
-    setShow(false);
+  const memory = JSON.parse(
+    localStorage.getItem("decisionMemory") || "[]"
+  );
 
-    // mémoire locale sécurisée
-    let memory: string[] = [];
-    try {
-      memory = JSON.parse(localStorage.getItem("decisionMemory") || "[]");
-    } catch {
-      memory = [];
+  const currentInput = input;
+  setInput(""); // vide l'input immédiatement (anti-spam UX)
+
+  try {
+    const res = await fetch("/api/decide", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        input: currentInput,
+        memory,
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error("API error");
     }
 
-    setInput(""); // vide l’input immédiatement (anti-spam UX)
+    const data = await res.json();
 
-    try {
-      const res = await fetch("/api/decide", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          input: finalInput,
-          memory,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!data?.ok) throw new Error("API error");
-
+    if (data.ok) {
       setDecision(data.decision);
-      setWhy(data.why);
-      setNow(data.now);
-      setHints(Array.isArray(data.hints) ? data.hints : []);
+      setWhy(data.why || "");
+      setNow(data.now || "");
+      setHints(data.hints || []);
 
       const newMemory = [...memory, data.decision].slice(-MAX_MEMORY);
       localStorage.setItem("decisionMemory", JSON.stringify(newMemory));
 
       setTimeout(() => {
         setShow(true);
-        audioRef.current?.play().catch(() => {});
-      }, 80);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false); // 🔴 CRUCIAL : empêche le chargement infini
+        audioRef.current?.play();
+      }, 120);
+    } else {
+      // fallback visible
+      setDecision("Agis simplement.");
+      setWhy("");
+      setNow("Commence maintenant.");
+      setShow(true);
     }
+
+  } catch (err) {
+    // ⚠️ IMPORTANT : feedback utilisateur
+    setDecision("Erreur de connexion.");
+    setWhy("");
+    setNow("Réessaie.");
+    setShow(true);
+  } finally {
+    // 🔴 FIX PRINCIPAL : on débloque TOUJOURS
+    setLoading(false);
   }
+}
+
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-black via-zinc-900 to-black text-white relative overflow-hidden">
