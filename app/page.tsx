@@ -12,6 +12,7 @@ export default function Home() {
   const [now, setNow] = useState("");
   const [show, setShow] = useState(false);
   const [hints, setHints] = useState<string[]>([]);
+  const [copied, setCopied] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -23,7 +24,8 @@ export default function Home() {
 
     setLoading(true);
     setShow(false);
-    setInput(""); // vide l’input immédiatement (anti-spam UX)
+    setCopied(false);
+    setInput(""); // anti-spam UX
 
     let memory: string[] = [];
     try {
@@ -58,7 +60,7 @@ export default function Home() {
       setTimeout(() => {
         setShow(true);
         audioRef.current?.play().catch(() => {});
-      }, 80);
+      }, 120);
     } catch (err) {
       console.error(err);
       setDecision("Erreur temporaire.");
@@ -66,19 +68,34 @@ export default function Home() {
       setNow("Réessaie.");
       setShow(true);
     } finally {
-      setLoading(false); // 🔴 essentiel : empêche le blocage infini
+      setLoading(false);
     }
+  }
+
+  function copyNow() {
+    if (!now) return;
+    navigator.clipboard.writeText(now);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
   }
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-black via-zinc-900 to-black text-white relative overflow-hidden">
+
       {/* ambiance */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.05),transparent_70%)] pointer-events-none" />
+
+      {/* loader centré (mobile safe) */}
+      {loading && !show && (
+        <div className="flex justify-center mt-24">
+          <Thinking />
+        </div>
+      )}
 
       {/* carte décision */}
       {show && (
         <div className="max-w-xl mx-auto px-6 pt-16">
-          <div className="relative bg-zinc-900/80 backdrop-blur-xl rounded-2xl p-6 shadow-2xl border border-white/10">
+          <div className="relative bg-zinc-900/80 backdrop-blur-xl rounded-2xl p-6 shadow-2xl border border-white/10 animate-fade-in">
             <div className="absolute left-0 top-0 h-full w-1 rounded-l-2xl bg-white/60" />
 
             <p className="text-xs tracking-widest text-zinc-400 mb-2">
@@ -95,17 +112,21 @@ export default function Home() {
               </p>
             )}
 
-            <button className="mt-2 px-4 py-2 rounded-lg bg-white text-black font-medium w-full">
-              {now}
+            {/* action immédiate */}
+            <button
+              onClick={copyNow}
+              className="mt-2 px-4 py-2 rounded-lg bg-white text-black font-medium w-full active:scale-95 transition"
+            >
+              {copied ? "Copié." : now}
             </button>
 
-            {/* suggestions (affinage uniquement) */}
+            {/* suggestions */}
             {hints.length > 0 && (
               <div className="mt-4 flex gap-2 flex-wrap">
                 {hints.map((hint, i) => (
                   <button
                     key={i}
-                    onClick={() => decide(hint)} // ✅ CORRIGÉ
+                    onClick={() => decide(hint)}
                     disabled={loading}
                     className="px-3 py-1 text-xs rounded-full bg-white/10 text-white hover:bg-white/20 transition disabled:opacity-50"
                   >
@@ -118,16 +139,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* loader (ne chevauche plus l’input) */}
-      {loading && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 flex gap-1 z-10">
-          <Dot delay="0s" />
-          <Dot delay="0.15s" />
-          <Dot delay="0.3s" />
-        </div>
-      )}
-
-      {/* input fixe */}
+      {/* input fixe mobile */}
       <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 z-20">
         <div className="max-w-xl mx-auto flex items-center bg-zinc-900/80 backdrop-blur-xl rounded-full px-4 py-3 border border-white/10 shadow-xl">
           <input
@@ -136,7 +148,11 @@ export default function Home() {
             onKeyDown={(e) => e.key === "Enter" && decide()}
             placeholder="Qu’est-ce qui te bloque ?"
             disabled={loading}
-            className="flex-1 bg-transparent outline-none text-sm text-white placeholder-zinc-500 disabled:opacity-50"
+            className="
+              flex-1 bg-transparent outline-none
+              text-base text-white placeholder-zinc-500
+              disabled:opacity-50
+            "
           />
           <button
             onClick={() => decide()}
@@ -144,7 +160,7 @@ export default function Home() {
             className={`ml-3 w-10 h-10 rounded-full flex items-center justify-center font-bold transition ${
               loading
                 ? "bg-zinc-600 cursor-not-allowed"
-                : "bg-white text-black hover:scale-105"
+                : "bg-white text-black hover:scale-105 active:scale-95"
             }`}
           >
             →
@@ -163,6 +179,16 @@ export default function Home() {
 }
 
 /* ===== composants ===== */
+
+function Thinking() {
+  return (
+    <div className="flex gap-1">
+      <Dot delay="0s" />
+      <Dot delay="0.15s" />
+      <Dot delay="0.3s" />
+    </div>
+  );
+}
 
 function Dot({ delay }: { delay: string }) {
   return (
